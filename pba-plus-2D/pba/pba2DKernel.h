@@ -37,13 +37,15 @@ SOFTWARE.
 
 */
 
-#define TOID(x, y, size)    (__mul24((y), (size)) + (x))
+__device__ __forceinline__ int toid(int x, int y, int size) {
+    return y * size + x;
+}
 
 __global__ void kernelFloodDown(short2 *input, short2 *output, int size, int bandSize) 
 {
     int tx = blockIdx.x * blockDim.x + threadIdx.x; 
     int ty = blockIdx.y * bandSize; 
-    int id = TOID(tx, ty, size); 
+    int id = toid(tx, ty, size);
 
     short2 pixel1, pixel2; 
 
@@ -52,8 +54,8 @@ __global__ void kernelFloodDown(short2 *input, short2 *output, int size, int ban
     for (int i = 0; i < bandSize; i++, id += size) {
         pixel2 = input[id]; 
 
-        if (pixel2.x != MARKER) 
-            pixel1 = pixel2; 
+        if (pixel2.x != MARKER)
+            pixel1 = pixel2;
 
         output[id] = pixel1; 
     }
@@ -63,7 +65,7 @@ __global__ void kernelFloodUp(short2 *input, short2 *output, int size, int bandS
 {
     int tx = blockIdx.x * blockDim.x + threadIdx.x; 
     int ty = (blockIdx.y+1) * bandSize - 1; 
-    int id = TOID(tx, ty, size); 
+    int id = toid(tx, ty, size);
 
     short2 pixel1, pixel2; 
     int dist1, dist2; 
@@ -92,8 +94,8 @@ __global__ void kernelPropagateInterband(short2 *input, short2 *output, int size
 
     // Top row, look backward
     int ty = blockIdx.y * bandSize; 
-    int topId = TOID(tx, ty, size); 
-    int bottomId = TOID(tx, ty + bandSize - 1, size); 
+    int topId = toid(tx, ty, size);
+    int bottomId = toid(tx, ty + bandSize - 1, size);
     int tid = blockIdx.y * size + tx;
     int bid = tid + (size * size / bandSize);
 
@@ -147,7 +149,7 @@ __global__ void kernelUpdateVertical(short2 *color, short2 *margin, short2 *outp
 
     int dist, myDist; 
 
-    int id = TOID(tx, ty, size); 
+    int id = toid(tx, ty, size);
 
     int n_step = bandSize / blockDim.x;
     for(int step = 0; step < n_step; ++step) {
@@ -169,7 +171,7 @@ __global__ void kernelUpdateVertical(short2 *color, short2 *margin, short2 *outp
 
         __syncthreads();
 
-        int tid = TOID(blockIdx.y * bandSize + step * blockDim.x + threadIdx.x, \
+        int tid = toid(blockIdx.y * bandSize + step * blockDim.x + threadIdx.x, \
                         blockIdx.x * blockDim.x, size);
 
         for(int i = 0; i < blockDim.x; ++i, tid += size) {
@@ -193,7 +195,7 @@ __global__ void kernelProximatePoints(short2 *input, short2 *stack, int size, in
 {
     int tx = __mul24(blockIdx.x, blockDim.x) + threadIdx.x; 
     int ty = __mul24(blockIdx.y, bandSize); 
-    int id = TOID(tx, ty, size); 
+    int id = toid(tx, ty, size);
     int lasty = -1; 
     short2 last1, last2, current; 
 
@@ -211,7 +213,7 @@ __global__ void kernelProximatePoints(short2 *input, short2 *stack, int size, in
                 lasty = last2.y; last2 = last1; 
 
                 if (last1.y >= 0)
-                    last1 = stack[TOID(tx, last1.y, size)]; 
+                    last1 = stack[toid(tx, last1.y, size)];
             }
 
             last1 = last2; last2 = make_short2(current.x, lasty); lasty = current.y; 
@@ -222,14 +224,14 @@ __global__ void kernelProximatePoints(short2 *input, short2 *stack, int size, in
 
     // Store the pointer to the tail at the last pixel of this band
     if (lasty != ty + bandSize - 1) 
-        stack[TOID(tx, ty + bandSize - 1, size)] = make_short2(MARKER, lasty); 
+        stack[toid(tx, ty + bandSize - 1, size)] = make_short2(MARKER, lasty);
 }
 
 __global__ void kernelCreateForwardPointers(short2 *input, short2 *output, int size, int bandSize) 
 {
     int tx = __mul24(blockIdx.x, blockDim.x) + threadIdx.x; 
     int ty = __mul24(blockIdx.y+1, bandSize) - 1; 
-    int id = TOID(tx, ty, size); 
+    int id = toid(tx, ty, size);
     int lasty = -1, nexty; 
     short2 current; 
 
@@ -269,36 +271,36 @@ __global__ void kernelMergeBands(short2 *color, short2 *link, short2 *output, in
 
     // Get the two last items of the first list
     lasty = __mul24(band2, bandSize) - 1; 
-    last2 = make_short2(color[TOID(tx, lasty, size)].x, 
-        link[TOID(tx, lasty, size)].y); 
+    last2 = make_short2(color[toid(tx, lasty, size)].x,
+        link[toid(tx, lasty, size)].y);
 
     if (last2.x == MARKER) {
         lasty = last2.y; 
 
         if (lasty >= 0) 
-            last2 = make_short2(color[TOID(tx, lasty, size)].x, 
-            link[TOID(tx, lasty, size)].y); 
+            last2 = make_short2(color[toid(tx, lasty, size)].x,
+            link[toid(tx, lasty, size)].y);
         else
             last2 = make_short2(MARKER, MARKER); 
     }
 
     if (last2.y >= 0) {
         // Second item at the top of the stack
-        last1 = make_short2(color[TOID(tx, last2.y, size)].x, 
-            link[TOID(tx, last2.y, size)].y); 
+        last1 = make_short2(color[toid(tx, last2.y, size)].x,
+            link[toid(tx, last2.y, size)].y);
     }
 
     // Get the first item of the second band
     firsty = __mul24(band2, bandSize); 
-    current = make_short2(link[TOID(tx, firsty, size)].x, 
-        color[TOID(tx, firsty, size)].x); 
+    current = make_short2(link[toid(tx, firsty, size)].x,
+        color[toid(tx, firsty, size)].x);
 
     if (current.y == MARKER) {
         firsty = current.x; 
 
         if (firsty >= 0) 
-            current = make_short2(link[TOID(tx, firsty, size)].x, 
-            color[TOID(tx, firsty, size)].x); 
+            current = make_short2(link[toid(tx, firsty, size)].x,
+            color[toid(tx, firsty, size)].x);
         else
             current = make_short2(MARKER, MARKER); 
     }
@@ -319,15 +321,15 @@ __global__ void kernelMergeBands(short2 *color, short2 *link, short2 *output, in
             top--; 
 
             if (last1.y >= 0) 
-                last1 = make_short2(color[TOID(tx, last1.y, size)].x, 
-                link[TOID(tx, last1.y, size)].y); 
+                last1 = make_short2(color[toid(tx, last1.y, size)].x,
+                link[toid(tx, last1.y, size)].y);
         }
 
         // Update the current pointer 
-        output[TOID(tx, firsty, size)] = make_short2(current.x, lasty); 
+        output[toid(tx, firsty, size)] = make_short2(current.x, lasty);
 
         if (lasty >= 0) 
-            output[TOID(tx, lasty, size)] = make_short2(firsty, last2.y); 
+            output[toid(tx, lasty, size)] = make_short2(firsty, last2.y);
 
         last1 = last2; last2 = make_short2(current.y, lasty); lasty = firsty; 
         firsty = current.x; 
@@ -336,8 +338,8 @@ __global__ void kernelMergeBands(short2 *color, short2 *link, short2 *output, in
 
         // Advance the current pointer to the next one
         if (firsty >= 0) 
-            current = make_short2(link[TOID(tx, firsty, size)].x, 
-            color[TOID(tx, firsty, size)].x); 
+            current = make_short2(link[toid(tx, firsty, size)].x,
+            color[toid(tx, firsty, size)].x);
         else
             current = make_short2(MARKER, MARKER); 
     }
@@ -345,32 +347,32 @@ __global__ void kernelMergeBands(short2 *color, short2 *link, short2 *output, in
     // Update the head and tail pointer. 
     firsty = __mul24(band1, bandSize); 
     lasty = __mul24(band2, bandSize); 
-    current = link[TOID(tx, firsty, size)]; 
+    current = link[toid(tx, firsty, size)];
 
     if (current.y == MARKER && current.x < 0) {	// No head?
-        last1 = link[TOID(tx, lasty, size)]; 
+        last1 = link[toid(tx, lasty, size)];
 
         if (last1.y == MARKER)
             current.x = last1.x; 
         else
             current.x = lasty; 
 
-        output[TOID(tx, firsty, size)] = current; 
+        output[toid(tx, firsty, size)] = current;
     }
 
     firsty = __mul24(band1, bandSize) + bandSize - 1; 
     lasty = __mul24(band2, bandSize) + bandSize - 1; 
-    current = link[TOID(tx, lasty, size)]; 
+    current = link[toid(tx, lasty, size)];
 
     if (current.x == MARKER && current.y < 0) {	// No tail?
-        last1 = link[TOID(tx, firsty, size)]; 
+        last1 = link[toid(tx, firsty, size)];
 
         if (last1.x == MARKER) 
             current.y = last1.y; 
         else
             current.y = firsty; 
 
-        output[TOID(tx, lasty, size)] = current; 
+        output[toid(tx, lasty, size)] = current;
     }
 }
 
@@ -378,7 +380,7 @@ __global__ void kernelDoubleToSingleList(short2 *color, short2 *link, short2 *ou
 {
     int tx = __mul24(blockIdx.x, blockDim.x) + threadIdx.x; 
     int ty = blockIdx.y; 
-    int id = TOID(tx, ty, size); 
+    int id = toid(tx, ty, size);
 
     output[id] = make_short2(color[id].x, link[id].y); 
 }
@@ -396,15 +398,15 @@ __global__ void kernelColor(short2 *input, short2 *output, int size)
 
     lasty = size - 1; 
 
-    last2 = input[TOID(tx, lasty, size)];
+    last2 = input[toid(tx, lasty, size)];
 
     if (last2.x == MARKER) {
         lasty = last2.y; 
-        last2 = input[TOID(tx, lasty, size)];
+        last2 = input[toid(tx, lasty, size)];
     }
 
     if (last2.y >= 0) 
-        last1 = input[TOID(tx, last2.y, size)];
+        last1 = input[toid(tx, last2.y, size)];
 
     int y_start, y_end, n_step = size / blockDim.x;
     for(int step = 0; step < n_step; ++step) {
@@ -425,7 +427,7 @@ __global__ void kernelColor(short2 *input, short2 *output, int size)
                 best = dist; lasty = last2.y; last2 = last1;
 
                 if (last2.y >= 0) 
-                    last1 = input[TOID(tx, last2.y, size)];
+                    last1 = input[toid(tx, last2.y, size)];
             }
 
             block[threadIdx.x][ty - y_end] = make_short2(lasty, last2.x);
@@ -434,7 +436,7 @@ __global__ void kernelColor(short2 *input, short2 *output, int size)
         __syncthreads();
 
         if(!threadIdx.y) {
-            int id = TOID(y_end + threadIdx.x, blockIdx.x * blockDim.x, size);
+            int id = toid(y_end + threadIdx.x, blockIdx.x * blockDim.x, size);
             for(int i = 0; i < blockDim.x; ++i, id+=size) {
                 output[id] = block[i][threadIdx.x];
             }
